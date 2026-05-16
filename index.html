@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="theme-color" content="#0d1117" />
+<title>NYC Solar D2D — Queens + Brooklyn</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --yellow: #d29922;
+    --red: #f85149;
+    --accent: #1f6feb;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+
+  .app { display: grid; grid-template-rows: auto 1fr auto; height: 100vh; height: 100dvh; }
+
+  /* Top bar */
+  .topbar { background: var(--panel); border-bottom: 1px solid var(--border); padding: 10px 14px; display: flex; align-items: center; gap: 10px; padding-top: max(10px, env(safe-area-inset-top)); }
+  .topbar .title { font-size: 14px; font-weight: 700; flex: 1; }
+  .topbar .stats { display: flex; gap: 14px; font-size: 11px; }
+  .topbar .stats span { color: var(--muted); }
+  .topbar .stats span b { color: var(--green); font-weight: 700; }
+
+  /* Main */
+  .main { position: relative; overflow: hidden; }
+  #map { width: 100%; height: 100%; background: #1c2128; }
+
+  /* Floating controls */
+  .fab-row { position: absolute; top: 12px; right: 12px; z-index: 500; display: flex; flex-direction: column; gap: 8px; }
+  .fab { width: 40px; height: 40px; border-radius: 20px; background: var(--panel); border: 1px solid var(--border); color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+  .fab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .filter-bar { position: absolute; top: 12px; left: 12px; z-index: 500; display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(100% - 70px); }
+  .chip { font-size: 11px; padding: 5px 10px; border-radius: 12px; background: var(--panel); border: 1px solid var(--border); cursor: pointer; color: var(--text); white-space: nowrap; }
+  .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip .count { opacity: 0.6; margin-left: 4px; }
+
+  /* Bottom sheet for lead detail */
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--panel); border-top: 1px solid var(--border); border-radius: 16px 16px 0 0; transform: translateY(100%); transition: transform 0.25s ease; z-index: 600; max-height: 80vh; max-height: 80dvh; overflow-y: auto; padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  .sheet.open { transform: translateY(0); }
+  .sheet-handle { width: 40px; height: 4px; background: #444c56; border-radius: 2px; margin: 8px auto 4px; }
+  .sheet-header { padding: 8px 16px 12px; display: flex; align-items: flex-start; gap: 8px; border-bottom: 1px solid var(--border); }
+  .sheet-header .info { flex: 1; min-width: 0; }
+  .sheet-header h2 { font-size: 17px; font-weight: 700; }
+  .sheet-header .addr { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .sheet-close { background: transparent; border: none; color: var(--muted); font-size: 22px; cursor: pointer; line-height: 1; padding: 4px 8px; }
+  .sheet-body { padding: 14px 16px; }
+
+  .section-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 14px 0 6px; font-weight: 600; }
+  .section-title:first-child { margin-top: 0; }
+
+  .field { display: grid; grid-template-columns: 120px 1fr; font-size: 13px; padding: 5px 0; border-bottom: 1px solid #21262d; }
+  .field .k { color: var(--muted); }
+  .field .v { color: var(--text); font-weight: 500; }
+
+  .form-row { margin-top: 8px; }
+  .form-row label { font-size: 11px; color: var(--muted); text-transform: uppercase; font-weight: 600; display: block; margin-bottom: 4px; }
+  .form-row input, .form-row textarea, .form-row select {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 9px 11px; border-radius: 8px; font-size: 15px; font-family: inherit; -webkit-appearance: none;
+  }
+  .form-row textarea { resize: vertical; min-height: 70px; }
+
+  .disp-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+  .disp-btn { padding: 11px 8px; font-size: 11px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; color: var(--text); text-transform: uppercase; font-weight: 700; transition: all 0.12s; text-align: center; }
+  .disp-btn[data-disp="knocked"].selected { background: #3fb95022; border-color: var(--green); color: var(--green); }
+  .disp-btn[data-disp="not_home"].selected { background: #8b949e22; border-color: var(--muted); color: var(--muted); }
+  .disp-btn[data-disp="callback"].selected { background: #d2992222; border-color: var(--yellow); color: var(--yellow); }
+  .disp-btn[data-disp="set"].selected { background: #1f6feb22; border-color: var(--accent); color: var(--blue); }
+  .disp-btn[data-disp="not_interested"].selected { background: #f8514922; border-color: var(--red); color: var(--red); }
+
+  .save-btn { width: 100%; margin-top: 14px; padding: 12px; background: #238636; color: #fff; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 15px; }
+  .save-btn:active { background: #1a6e2a; }
+
+  .viability { display: inline-block; padding: 3px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+  .v-high { background: #3fb95022; color: var(--green); }
+  .v-med { background: #d2992222; color: var(--yellow); }
+  .v-low { background: #f8514922; color: var(--red); }
+
+  /* Bottom nav */
+  .bottom-nav { background: var(--panel); border-top: 1px solid var(--border); display: flex; padding-bottom: max(0px, env(safe-area-inset-bottom)); }
+  .nav-btn { flex: 1; padding: 11px; text-align: center; background: transparent; border: none; color: var(--muted); font-size: 11px; font-weight: 600; cursor: pointer; }
+  .nav-btn.active { color: var(--blue); }
+  .nav-btn .ico { display: block; font-size: 18px; margin-bottom: 2px; }
+
+  /* List view */
+  .list-view { position: absolute; inset: 0; background: var(--bg); overflow-y: auto; transform: translateX(100%); transition: transform 0.2s ease; z-index: 400; }
+  .list-view.open { transform: translateX(0); }
+  .lead-item { padding: 12px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .lead-item:active { background: var(--panel); }
+  .lead-item .nm { font-size: 14px; font-weight: 600; }
+  .lead-item .ad { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .lead-item .row { display: flex; gap: 8px; margin-top: 6px; align-items: center; font-size: 11px; }
+  .badge { padding: 2px 8px; border-radius: 10px; font-weight: 700; text-transform: uppercase; font-size: 9px; }
+  .b-set { background: #1f6feb22; color: var(--blue); }
+  .b-callback { background: #d2992222; color: var(--yellow); }
+  .b-knock { background: #3fb95022; color: var(--green); }
+  .b-not-home { background: #8b949e22; color: var(--muted); }
+  .b-no { background: #f8514922; color: var(--red); }
+  .b-fresh { background: #21262d; color: var(--muted); }
+
+  /* Stats view */
+  .stats-view { position: absolute; inset: 0; background: var(--bg); overflow-y: auto; transform: translateX(100%); transition: transform 0.2s ease; z-index: 400; padding: 20px; }
+  .stats-view.open { transform: translateX(0); }
+  .stat-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+  .stat-card h3 { font-size: 12px; color: var(--muted); text-transform: uppercase; font-weight: 600; margin-bottom: 8px; }
+  .stat-card .big { font-size: 28px; font-weight: 700; color: var(--green); }
+  .stat-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; }
+  .stat-row .l { color: var(--muted); }
+
+  /* Leaflet overrides */
+  .leaflet-popup-content-wrapper { background: var(--panel); color: var(--text); border-radius: 8px; }
+  .leaflet-popup-content { margin: 10px 12px; font-size: 12px; }
+  .leaflet-popup-tip { background: var(--panel); }
+  .leaflet-control-attribution { background: rgba(13,17,23,0.7) !important; color: var(--muted) !important; font-size: 9px; }
+  .leaflet-control-attribution a { color: var(--blue) !important; }
+
+  .demo-tag { position: absolute; bottom: 60px; left: 12px; z-index: 500; background: rgba(210, 153, 34, 0.15); border: 1px solid var(--yellow); color: var(--yellow); font-size: 10px; padding: 4px 8px; border-radius: 8px; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <div class="title">Solar D2D · Queens + Brooklyn</div>
+    <div class="stats">
+      <span>Knocks <b id="s-knock">0</b></span>
+      <span>Sets <b id="s-set">0</b></span>
+    </div>
+  </header>
+
+  <main class="main">
+
+    <div id="map"></div>
+
+    <div class="filter-bar" id="filter-bar"></div>
+
+    <div class="fab-row">
+      <button class="fab" id="fab-gps" title="Center on me">📍</button>
+      <button class="fab" id="fab-route" title="Toggle route">🥾</button>
+    </div>
+
+    <div class="demo-tag">SAMPLE DATA — load PLUTO to go live</div>
+
+    <!-- Lead list view -->
+    <div class="list-view" id="list-view">
+      <div id="list-container"></div>
+    </div>
+
+    <!-- Stats view -->
+    <div class="stats-view" id="stats-view">
+      <div class="stat-card">
+        <h3>Today</h3>
+        <div class="big" id="ts-knock">0</div>
+        <div class="stat-row"><span class="l">Doors knocked</span><span id="ts-knock2">0</span></div>
+        <div class="stat-row"><span class="l">Appts set</span><span id="ts-set">0</span></div>
+        <div class="stat-row"><span class="l">Callbacks scheduled</span><span id="ts-cb">0</span></div>
+        <div class="stat-row"><span class="l">Conversion (knock → set)</span><span id="ts-conv">0%</span></div>
+      </div>
+      <div class="stat-card">
+        <h3>All-Time</h3>
+        <div class="stat-row"><span class="l">Total doors knocked</span><span id="ts-all-knock">0</span></div>
+        <div class="stat-row"><span class="l">Total appts set</span><span id="ts-all-set">0</span></div>
+        <div class="stat-row"><span class="l">Solar-viable doors loaded</span><span id="ts-viable">0</span></div>
+      </div>
+      <div class="stat-card">
+        <h3>Data</h3>
+        <div class="stat-row"><span class="l">Storage used</span><span id="ts-storage">—</span></div>
+        <button class="save-btn" id="export-btn" style="background:#1f6feb;">Export leads to CSV</button>
+        <button class="save-btn" id="reset-btn" style="background:#21262d;border:1px solid var(--border);color:var(--muted);margin-top:8px;">Reset all data</button>
+      </div>
+    </div>
+
+  </main>
+
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-view="map"><span class="ico">🗺️</span>Map</button>
+    <button class="nav-btn" data-view="list"><span class="ico">📋</span>Leads</button>
+    <button class="nav-btn" data-view="stats"><span class="ico">📊</span>Stats</button>
+  </nav>
+
+</div>
+
+<!-- Lead detail bottom sheet -->
+<div class="sheet" id="sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header">
+    <div class="info">
+      <h2 id="sh-name">—</h2>
+      <div class="addr" id="sh-addr">—</div>
+    </div>
+    <button class="sheet-close" id="sh-close">×</button>
+  </div>
+  <div class="sheet-body" id="sh-body"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// =====================================================================
+// SAMPLE PLUTO-STYLE DATA — Queens + Brooklyn
+// Real-looking addresses in real neighborhoods, fabricated owner names.
+// In production: replace this array with PLUTO CSV loaded into your DB.
+// =====================================================================
+const SAMPLE_LEADS = [
+  // ASTORIA, QUEENS
+  { id:'a1', first:'Maria', last:'Papadopoulos', addr:'31-42 21st Ave', city:'Astoria', boro:'Queens', zip:'11105', lat:40.7793, lng:-73.9078, bldg_class:'B1', units:2, year_built:1925, lot_sqft:2500, est_value:1180000, viability:'high', owner_at_property:true },
+  { id:'a2', first:'Anthony', last:'Russo', addr:'30-15 23rd St', city:'Astoria', boro:'Queens', zip:'11102', lat:40.7716, lng:-73.9215, bldg_class:'A5', units:1, year_built:1930, lot_sqft:2000, est_value:920000, viability:'high', owner_at_property:true },
+  { id:'a3', first:'Demetrios', last:'Konstantinou', addr:'29-08 24th Ave', city:'Astoria', boro:'Queens', zip:'11102', lat:40.7748, lng:-73.9131, bldg_class:'B2', units:2, year_built:1928, lot_sqft:2750, est_value:1290000, viability:'high', owner_at_property:true },
+
+  // BAYSIDE, QUEENS
+  { id:'b1', first:'Jennifer', last:'Kim', addr:'215-18 41st Ave', city:'Bayside', boro:'Queens', zip:'11361', lat:40.7615, lng:-73.7702, bldg_class:'A1', units:1, year_built:1955, lot_sqft:4000, est_value:980000, viability:'high', owner_at_property:true },
+  { id:'b2', first:'David', last:'Chen', addr:'42-08 215th Pl', city:'Bayside', boro:'Queens', zip:'11361', lat:40.7621, lng:-73.7691, bldg_class:'A1', units:1, year_built:1958, lot_sqft:4500, est_value:1050000, viability:'high', owner_at_property:true },
+  { id:'b3', first:'Patricia', last:'Lee', addr:'48-12 Bell Blvd', city:'Bayside', boro:'Queens', zip:'11361', lat:40.7565, lng:-73.7708, bldg_class:'A1', units:1, year_built:1962, lot_sqft:4200, est_value:1120000, viability:'high', owner_at_property:true },
+
+  // FOREST HILLS, QUEENS
+  { id:'f1', first:'Robert', last:'Goldstein', addr:'72-31 Austin St', city:'Forest Hills', boro:'Queens', zip:'11375', lat:40.7211, lng:-73.8458, bldg_class:'A5', units:1, year_built:1928, lot_sqft:3500, est_value:1380000, viability:'med', owner_at_property:true },
+  { id:'f2', first:'Susan', last:'Weiss', addr:'108-15 Queens Blvd', city:'Forest Hills', boro:'Queens', zip:'11375', lat:40.7268, lng:-73.8389, bldg_class:'B3', units:2, year_built:1932, lot_sqft:3200, est_value:1450000, viability:'med', owner_at_property:true },
+
+  // FLUSHING, QUEENS
+  { id:'fl1', first:'Wei', last:'Zhang', addr:'45-12 Parsons Blvd', city:'Flushing', boro:'Queens', zip:'11355', lat:40.7589, lng:-73.8273, bldg_class:'A1', units:1, year_built:1950, lot_sqft:3000, est_value:870000, viability:'high', owner_at_property:true },
+  { id:'fl2', first:'Mei', last:'Liu', addr:'149-22 Northern Blvd', city:'Flushing', boro:'Queens', zip:'11354', lat:40.7642, lng:-73.8068, bldg_class:'A5', units:1, year_built:1942, lot_sqft:2800, est_value:790000, viability:'med', owner_at_property:true },
+
+  // HOWARD BEACH, QUEENS
+  { id:'h1', first:'Joseph', last:'Iannelli', addr:'159-28 88th St', city:'Howard Beach', boro:'Queens', zip:'11414', lat:40.6584, lng:-73.8421, bldg_class:'A1', units:1, year_built:1965, lot_sqft:4800, est_value:920000, viability:'high', owner_at_property:true },
+  { id:'h2', first:'Frank', last:'Marino', addr:'164-08 99th St', city:'Howard Beach', boro:'Queens', zip:'11414', lat:40.6602, lng:-73.8389, bldg_class:'B1', units:2, year_built:1968, lot_sqft:5200, est_value:1080000, viability:'high', owner_at_property:true },
+
+  // BAY RIDGE, BROOKLYN
+  { id:'br1', first:'Michael', last:"O'Sullivan", addr:'8412 Ridge Blvd', city:'Bay Ridge', boro:'Brooklyn', zip:'11209', lat:40.6228, lng:-74.0317, bldg_class:'A5', units:1, year_built:1930, lot_sqft:3000, est_value:1280000, viability:'high', owner_at_property:true },
+  { id:'br2', first:'Christopher', last:'Murphy', addr:'7615 Shore Rd', city:'Bay Ridge', boro:'Brooklyn', zip:'11209', lat:40.6312, lng:-74.0335, bldg_class:'B3', units:2, year_built:1925, lot_sqft:3500, est_value:1620000, viability:'high', owner_at_property:true },
+  { id:'br3', first:'Daniel', last:'Walsh', addr:'9201 4th Ave', city:'Bay Ridge', boro:'Brooklyn', zip:'11209', lat:40.6173, lng:-74.0291, bldg_class:'A5', units:1, year_built:1928, lot_sqft:2800, est_value:1150000, viability:'high', owner_at_property:true },
+
+  // PARK SLOPE, BROOKLYN
+  { id:'p1', first:'Sarah', last:'Cohen', addr:'412 6th Ave', city:'Park Slope', boro:'Brooklyn', zip:'11215', lat:40.6692, lng:-73.9817, bldg_class:'B9', units:2, year_built:1900, lot_sqft:2200, est_value:2480000, viability:'med', owner_at_property:true },
+  { id:'p2', first:'Jonathan', last:'Levine', addr:'318 Garfield Pl', city:'Park Slope', boro:'Brooklyn', zip:'11215', lat:40.6712, lng:-73.9805, bldg_class:'B9', units:2, year_built:1895, lot_sqft:2400, est_value:2890000, viability:'low', owner_at_property:true },
+
+  // MARINE PARK, BROOKLYN
+  { id:'mp1', first:'Nicholas', last:'DeLuca', addr:'3214 Avenue R', city:'Marine Park', boro:'Brooklyn', zip:'11234', lat:40.6065, lng:-73.9389, bldg_class:'A1', units:1, year_built:1948, lot_sqft:4200, est_value:1050000, viability:'high', owner_at_property:true },
+  { id:'mp2', first:'Anthony', last:'Ferraro', addr:'2911 Fillmore Ave', city:'Marine Park', boro:'Brooklyn', zip:'11234', lat:40.6087, lng:-73.9402, bldg_class:'B1', units:2, year_built:1952, lot_sqft:4800, est_value:1180000, viability:'high', owner_at_property:true },
+  { id:'mp3', first:'Vincent', last:'Costa', addr:'2415 Burnett St', city:'Marine Park', boro:'Brooklyn', zip:'11229', lat:40.6018, lng:-73.9445, bldg_class:'A1', units:1, year_built:1945, lot_sqft:4000, est_value:990000, viability:'high', owner_at_property:true },
+
+  // MILL BASIN, BROOKLYN
+  { id:'mb1', first:'Gregory', last:'Romano', addr:'2118 East 66th St', city:'Mill Basin', boro:'Brooklyn', zip:'11234', lat:40.6082, lng:-73.9131, bldg_class:'A1', units:1, year_built:1962, lot_sqft:5500, est_value:1280000, viability:'high', owner_at_property:true },
+  { id:'mb2', first:'Salvatore', last:'Greco', addr:'2308 East 71st St', city:'Mill Basin', boro:'Brooklyn', zip:'11234', lat:40.6071, lng:-73.9089, bldg_class:'A1', units:1, year_built:1965, lot_sqft:6200, est_value:1450000, viability:'high', owner_at_property:true },
+
+  // SHEEPSHEAD BAY, BROOKLYN
+  { id:'sb1', first:'Igor', last:'Petrov', addr:'2715 Avenue X', city:'Sheepshead Bay', boro:'Brooklyn', zip:'11235', lat:40.5942, lng:-73.9402, bldg_class:'B1', units:2, year_built:1948, lot_sqft:3500, est_value:1020000, viability:'high', owner_at_property:true },
+  { id:'sb2', first:'Yelena', last:'Volkov', addr:'2218 Brown St', city:'Sheepshead Bay', boro:'Brooklyn', zip:'11229', lat:40.5985, lng:-73.9468, bldg_class:'A1', units:1, year_built:1955, lot_sqft:3200, est_value:920000, viability:'high', owner_at_property:true },
+
+  // RIDGEWOOD, QUEENS
+  { id:'rw1', first:'Wojciech', last:'Kowalski', addr:'67-15 Forest Ave', city:'Ridgewood', boro:'Queens', zip:'11385', lat:40.7012, lng:-73.8965, bldg_class:'B9', units:2, year_built:1918, lot_sqft:2200, est_value:980000, viability:'med', owner_at_property:true },
+
+  // MIDDLE VILLAGE, QUEENS
+  { id:'mv1', first:'Anna', last:'Kaczmarek', addr:'71-22 Cooper Ave', city:'Middle Village', boro:'Queens', zip:'11379', lat:40.7124, lng:-73.8821, bldg_class:'A5', units:1, year_built:1935, lot_sqft:3000, est_value:920000, viability:'high', owner_at_property:true },
+];
+
+// =====================================================================
+// STATE — persisted to localStorage
+// =====================================================================
+const STORAGE_KEY = 'nyc_solar_crm_v1';
+let state = loadState();
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch(e) {}
+  return {
+    leads: SAMPLE_LEADS.map(l => ({ ...l, status: 'fresh', monthly_bill: '', credit: 'unknown', phone: '', roof_notes: '', notes: '', updated_at: null })),
+    filter: 'all',
+    show_route: true,
+  };
+}
+
+function saveState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+// =====================================================================
+// MAP
+// =====================================================================
+const map = L.map('map', { zoomControl: false }).setView([40.6815, -73.9301], 12);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap © CARTO',
+  maxZoom: 19,
+  subdomains: 'abcd'
+}).addTo(map);
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+const COLORS = {
+  fresh: '#444c56',
+  knocked: '#3fb950',
+  not_home: '#8b949e',
+  callback: '#d29922',
+  set: '#1f6feb',
+  not_interested: '#f85149'
+};
+const STATUS_LABELS = {
+  fresh: 'Fresh', knocked: 'Knocked', not_home: 'Not Home',
+  callback: 'Callback', set: 'Set', not_interested: 'Not Int.'
+};
+const STATUS_BADGE = {
+  fresh: 'b-fresh', knocked: 'b-knock', not_home: 'b-not-home',
+  callback: 'b-callback', set: 'b-set', not_interested: 'b-no'
+};
+
+const markers = {};
+function renderMarkers() {
+  Object.values(markers).forEach(m => map.removeLayer(m));
+  Object.keys(markers).forEach(k => delete markers[k]);
+
+  const filtered = filterLeads(state.leads);
+  filtered.forEach(lead => {
+    const color = COLORS[lead.status] || COLORS.fresh;
+    const ring = lead.viability === 'high' ? `box-shadow:0 0 0 2px ${color}33, 0 2px 6px rgba(0,0,0,0.5);` : `box-shadow:0 2px 6px rgba(0,0,0,0.5);`;
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="width:16px;height:16px;border-radius:50%;background:${color};border:2px solid #fff;${ring}"></div>`,
+      iconSize: [16, 16],
+      iconAnchor: [8, 8]
+    });
+    const m = L.marker([lead.lat, lead.lng], { icon }).addTo(map);
+    m.on('click', () => openLead(lead.id));
+    markers[lead.id] = m;
+  });
+}
+
+function filterLeads(leads) {
+  if (state.filter === 'all') return leads;
+  if (state.filter === 'high_viability') return leads.filter(l => l.viability === 'high');
+  return leads.filter(l => l.status === state.filter);
+}
+
+// =====================================================================
+// FILTER BAR
+// =====================================================================
+function renderFilterBar() {
+  const bar = document.getElementById('filter-bar');
+  const counts = state.leads.reduce((acc, l) => {
+    acc.all++;
+    acc[l.status] = (acc[l.status] || 0) + 1;
+    if (l.viability === 'high') acc.high_viability++;
+    return acc;
+  }, { all: 0, high_viability: 0 });
+
+  const filters = [
+    { key: 'all', label: 'All' },
+    { key: 'high_viability', label: '⭐ High-V' },
+    { key: 'fresh', label: 'Fresh' },
+    { key: 'knocked', label: 'Knocked' },
+    { key: 'callback', label: 'CB' },
+    { key: 'set', label: 'Set' },
+  ];
+
+  bar.innerHTML = filters.map(f => `
+    <div class="chip ${state.filter === f.key ? 'active' : ''}" data-filter="${f.key}">
+      ${f.label}<span class="count">${counts[f.key] || 0}</span>
+    </div>
+  `).join('');
+
+  bar.querySelectorAll('.chip').forEach(c => {
+    c.addEventListener('click', () => {
+      state.filter = c.dataset.filter;
+      saveState();
+      renderFilterBar();
+      renderMarkers();
+      renderList();
+    });
+  });
+}
+
+// =====================================================================
+// LEAD DETAIL BOTTOM SHEET
+// =====================================================================
+let currentLeadId = null;
+function openLead(id) {
+  const lead = state.leads.find(l => l.id === id);
+  if (!lead) return;
+  currentLeadId = id;
+
+  document.getElementById('sh-name').textContent = `${lead.first} ${lead.last}`;
+  document.getElementById('sh-addr').textContent = `${lead.addr}, ${lead.city} ${lead.zip}`;
+
+  const vClass = lead.viability === 'high' ? 'v-high' : lead.viability === 'med' ? 'v-med' : 'v-low';
+  const vLabel = lead.viability === 'high' ? 'High viability' : lead.viability === 'med' ? 'Medium' : 'Low — flat/historic';
+
+  const bldgLabel = lead.bldg_class.startsWith('A') ? `1-family (${lead.bldg_class})` :
+                    lead.bldg_class.startsWith('B') ? `2-family (${lead.bldg_class})` :
+                    lead.bldg_class;
+
+  document.getElementById('sh-body').innerHTML = `
+    <div style="margin-bottom:10px;"><span class="viability ${vClass}">${vLabel}</span></div>
+
+    <div class="section-title">Property (PLUTO)</div>
+    <div class="field"><div class="k">Building</div><div class="v">${bldgLabel} · ${lead.units} unit${lead.units > 1 ? 's' : ''}</div></div>
+    <div class="field"><div class="k">Year built</div><div class="v">${lead.year_built}</div></div>
+    <div class="field"><div class="k">Lot size</div><div class="v">${lead.lot_sqft.toLocaleString()} sqft</div></div>
+    <div class="field"><div class="k">Est. value</div><div class="v">$${lead.est_value.toLocaleString()}</div></div>
+    <div class="field"><div class="k">Owner-occupied?</div><div class="v">${lead.owner_at_property ? '✓ Yes' : 'No — landlord'}</div></div>
+
+    <div class="section-title">Qualification</div>
+    <div class="form-row">
+      <label>Monthly Con Ed bill</label>
+      <input type="number" id="f-bill" inputmode="numeric" placeholder="$" value="${lead.monthly_bill}" />
+    </div>
+    <div class="form-row">
+      <label>Credit score range</label>
+      <select id="f-credit">
+        <option value="unknown" ${lead.credit==='unknown'?'selected':''}>Unknown</option>
+        <option value="720+" ${lead.credit==='720+'?'selected':''}>720+</option>
+        <option value="680-720" ${lead.credit==='680-720'?'selected':''}>680-720</option>
+        <option value="640-680" ${lead.credit==='640-680'?'selected':''}>640-680</option>
+        <option value="below 640" ${lead.credit==='below 640'?'selected':''}>Below 640</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label>Phone</label>
+      <input type="tel" id="f-phone" placeholder="(xxx) xxx-xxxx" value="${lead.phone}" />
+    </div>
+    <div class="form-row">
+      <label>Roof notes</label>
+      <input type="text" id="f-roof" placeholder="orientation, condition, shading" value="${lead.roof_notes}" />
+    </div>
+
+    <div class="section-title">Disposition</div>
+    <div class="disp-grid">
+      <button class="disp-btn ${lead.status==='knocked'?'selected':''}" data-disp="knocked">Knocked</button>
+      <button class="disp-btn ${lead.status==='not_home'?'selected':''}" data-disp="not_home">Not Home</button>
+      <button class="disp-btn ${lead.status==='callback'?'selected':''}" data-disp="callback">Callback</button>
+      <button class="disp-btn ${lead.status==='set'?'selected':''}" data-disp="set">Appt Set</button>
+      <button class="disp-btn ${lead.status==='not_interested'?'selected':''}" data-disp="not_interested" style="grid-column:span 2;">Not Interested</button>
+    </div>
+
+    <div class="section-title">Notes</div>
+    <div class="form-row">
+      <textarea id="f-notes" placeholder="What did they say? Best time to come back?">${lead.notes}</textarea>
+    </div>
+
+    <button class="save-btn" id="save-lead">Save Lead</button>
+  `;
+
+  document.querySelectorAll('.disp-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.disp-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    });
+  });
+
+  document.getElementById('save-lead').addEventListener('click', saveLead);
+  document.getElementById('sheet').classList.add('open');
+}
+
+function closeSheet() {
+  document.getElementById('sheet').classList.remove('open');
+  currentLeadId = null;
+}
+
+function saveLead() {
+  if (!currentLeadId) return;
+  const lead = state.leads.find(l => l.id === currentLeadId);
+  if (!lead) return;
+
+  const selectedDisp = document.querySelector('.disp-btn.selected');
+  lead.status = selectedDisp ? selectedDisp.dataset.disp : lead.status;
+  lead.monthly_bill = document.getElementById('f-bill').value;
+  lead.credit = document.getElementById('f-credit').value;
+  lead.phone = document.getElementById('f-phone').value;
+  lead.roof_notes = document.getElementById('f-roof').value;
+  lead.notes = document.getElementById('f-notes').value;
+  lead.updated_at = new Date().toISOString();
+
+  saveState();
+  closeSheet();
+  renderMarkers();
+  renderList();
+  renderFilterBar();
+  renderTopStats();
+  renderStats();
+}
+
+document.getElementById('sh-close').addEventListener('click', closeSheet);
+
+// =====================================================================
+// LEAD LIST VIEW
+// =====================================================================
+function renderList() {
+  const container = document.getElementById('list-container');
+  const filtered = filterLeads(state.leads).slice().sort((a, b) => {
+    const order = { set: 0, callback: 1, knocked: 2, not_home: 3, fresh: 4, not_interested: 5 };
+    return (order[a.status] ?? 9) - (order[b.status] ?? 9);
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted);">No leads match this filter.</div>';
+    return;
+  }
+
+  container.innerHTML = filtered.map(l => `
+    <div class="lead-item" data-id="${l.id}">
+      <div class="nm">${l.first} ${l.last}</div>
+      <div class="ad">${l.addr} · ${l.city}</div>
+      <div class="row">
+        <span class="badge ${STATUS_BADGE[l.status]}">${STATUS_LABELS[l.status]}</span>
+        ${l.viability === 'high' ? '<span style="color:var(--green);font-size:10px;">⭐ High-V</span>' : ''}
+        ${l.monthly_bill ? `<span style="color:var(--muted);">$${l.monthly_bill}/mo</span>` : ''}
+      </div>
+    </div>
+  `).join('');
+
+  container.querySelectorAll('.lead-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const lead = state.leads.find(l => l.id === item.dataset.id);
+      if (!lead) return;
+      switchView('map');
+      map.setView([lead.lat, lead.lng], 17);
+      setTimeout(() => openLead(lead.id), 250);
+    });
+  });
+}
+
+// =====================================================================
+// STATS
+// =====================================================================
+function renderTopStats() {
+  const today = todayLeads();
+  document.getElementById('s-knock').textContent = today.filter(l => ['knocked','not_home','callback','set','not_interested'].includes(l.status)).length;
+  document.getElementById('s-set').textContent = today.filter(l => l.status === 'set').length;
+}
+
+function todayLeads() {
+  const today = new Date().toDateString();
+  return state.leads.filter(l => l.updated_at && new Date(l.updated_at).toDateString() === today);
+}
+
+function renderStats() {
+  const today = todayLeads();
+  const knocks = today.filter(l => ['knocked','not_home','callback','set','not_interested'].includes(l.status)).length;
+  const sets = today.filter(l => l.status === 'set').length;
+  const cbs = today.filter(l => l.status === 'callback').length;
+  document.getElementById('ts-knock').textContent = knocks;
+  document.getElementById('ts-knock2').textContent = knocks;
+  document.getElementById('ts-set').textContent = sets;
+  document.getElementById('ts-cb').textContent = cbs;
+  document.getElementById('ts-conv').textContent = knocks ? `${Math.round(sets/knocks*100)}%` : '0%';
+
+  document.getElementById('ts-all-knock').textContent = state.leads.filter(l => ['knocked','not_home','callback','set','not_interested'].includes(l.status)).length;
+  document.getElementById('ts-all-set').textContent = state.leads.filter(l => l.status === 'set').length;
+  document.getElementById('ts-viable').textContent = state.leads.filter(l => l.viability === 'high').length;
+
+  const bytes = new Blob([JSON.stringify(state)]).size;
+  document.getElementById('ts-storage').textContent = `${(bytes/1024).toFixed(1)} KB`;
+}
+
+// =====================================================================
+// EXPORT / RESET
+// =====================================================================
+document.getElementById('export-btn').addEventListener('click', () => {
+  const headers = ['first','last','addr','city','boro','zip','status','monthly_bill','credit','phone','roof_notes','notes','viability','est_value','updated_at'];
+  const rows = state.leads.map(l => headers.map(h => {
+    const v = l[h] ?? '';
+    return `"${String(v).replace(/"/g,'""')}"`;
+  }).join(','));
+  const csv = headers.join(',') + '\n' + rows.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `solar-leads-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('reset-btn').addEventListener('click', () => {
+  if (confirm('Wipe all leads + dispositions and reload sample data?')) {
+    localStorage.removeItem(STORAGE_KEY);
+    location.reload();
+  }
+});
+
+// =====================================================================
+// GPS + ROUTE
+// =====================================================================
+let myLocationMarker = null;
+let routePolyline = null;
+let routePoints = JSON.parse(localStorage.getItem('nyc_solar_route_' + new Date().toDateString()) || '[]');
+
+function updateRoute() {
+  if (routePolyline) map.removeLayer(routePolyline);
+  if (state.show_route && routePoints.length > 1) {
+    routePolyline = L.polyline(routePoints, { color: '#3fb950', weight: 3, opacity: 0.7, dashArray: '4,6' }).addTo(map);
+  }
+}
+
+document.getElementById('fab-gps').addEventListener('click', () => {
+  if (!navigator.geolocation) {
+    alert('GPS not available in this browser.');
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(pos => {
+    const { latitude, longitude } = pos.coords;
+    map.setView([latitude, longitude], 17);
+    if (myLocationMarker) map.removeLayer(myLocationMarker);
+    myLocationMarker = L.marker([latitude, longitude], {
+      icon: L.divIcon({
+        className: '',
+        html: `<div style="width:16px;height:16px;border-radius:50%;background:#58a6ff;border:3px solid #fff;box-shadow:0 0 0 6px rgba(88,166,255,0.3);"></div>`,
+        iconSize: [16, 16], iconAnchor: [8, 8]
+      })
+    }).addTo(map);
+    routePoints.push([latitude, longitude]);
+    localStorage.setItem('nyc_solar_route_' + new Date().toDateString(), JSON.stringify(routePoints));
+    updateRoute();
+  }, err => {
+    alert('Could not get GPS: ' + err.message);
+  }, { enableHighAccuracy: true, timeout: 10000 });
+});
+
+document.getElementById('fab-route').addEventListener('click', () => {
+  state.show_route = !state.show_route;
+  saveState();
+  document.getElementById('fab-route').classList.toggle('active', state.show_route);
+  updateRoute();
+});
+if (state.show_route) document.getElementById('fab-route').classList.add('active');
+
+if (navigator.geolocation) {
+  navigator.geolocation.watchPosition(pos => {
+    const { latitude, longitude } = pos.coords;
+    if (myLocationMarker) {
+      myLocationMarker.setLatLng([latitude, longitude]);
+    } else {
+      myLocationMarker = L.marker([latitude, longitude], {
+        icon: L.divIcon({
+          className: '',
+          html: `<div style="width:16px;height:16px;border-radius:50%;background:#58a6ff;border:3px solid #fff;box-shadow:0 0 0 6px rgba(88,166,255,0.3);"></div>`,
+          iconSize: [16, 16], iconAnchor: [8, 8]
+        })
+      }).addTo(map);
+    }
+    const last = routePoints[routePoints.length - 1];
+    if (!last || Math.hypot(last[0]-latitude, last[1]-longitude) > 0.0001) {
+      routePoints.push([latitude, longitude]);
+      if (routePoints.length > 500) routePoints.shift();
+      localStorage.setItem('nyc_solar_route_' + new Date().toDateString(), JSON.stringify(routePoints));
+      updateRoute();
+    }
+  }, () => {}, { enableHighAccuracy: true, maximumAge: 15000 });
+}
+
+// =====================================================================
+// VIEW SWITCHER
+// =====================================================================
+function switchView(view) {
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  document.getElementById('list-view').classList.toggle('open', view === 'list');
+  document.getElementById('stats-view').classList.toggle('open', view === 'stats');
+  if (view === 'list') renderList();
+  if (view === 'stats') renderStats();
+}
+
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => switchView(btn.dataset.view));
+});
+
+// =====================================================================
+// INIT
+// =====================================================================
+renderFilterBar();
+renderMarkers();
+renderTopStats();
+updateRoute();
+</script>
+</body>
+</html>
